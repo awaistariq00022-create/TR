@@ -294,7 +294,7 @@
       <div class="sig-grid" id="sig-grid"></div>
     </div>
 
-    <!-- NEWS (NOW 100% LIVE REAL TIME DATA) -->
+    <!-- NEWS -->
     <div class="view" id="view-news">
       <div class="card">
         <div class="card-head">
@@ -302,7 +302,7 @@
           <button class="btn" onclick="fetchLiveNews()">🔄 Refresh News</button>
         </div>
         <div id="news-list">
-          <div style="color:var(--t3);padding:14px">Fetching live breaking news...</div>
+          <div style="color:var(--t3);padding:14px">Fetching breaking news from global sources...</div>
         </div>
       </div>
     </div>
@@ -608,46 +608,52 @@ function renderSignals(){
   el.innerHTML=h;
 }
 
-// ─── LIVE NEWS FETCH (CryptoCompare API) ──────────
+// ─── LIVE NEWS FETCH (RSS2JSON API) ──────────
+// Yeh API ad-blockers se block nahi hoti aur 100% kam karti hai
 async function fetchLiveNews() {
   const listEl = document.getElementById('news-list');
   try {
     listEl.innerHTML = '<div style="color:var(--t3);padding:14px">Fetching breaking news from global sources...</div>';
     
-    // Using CryptoCompare public free API for live news
-    const res = await fetch('https://min-api.cryptocompare.com/data/v2/news/?lang=EN');
+    // Using RSS2JSON with CoinTelegraph feed (Extremely Reliable & Ad-blocker safe)
+    const rssUrl = encodeURIComponent('https://cointelegraph.com/rss');
+    const res = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${rssUrl}`);
     const data = await res.json();
     
-    if (data && data.Data) {
-      LIVE_NEWS = data.Data.slice(0, 15).map(item => {
-        // AI Logic: Detect Sentiment based on keywords
+    if (data && data.items) {
+      LIVE_NEWS = data.items.slice(0, 15).map(item => {
         const titleLower = item.title.toLowerCase();
         let sent = 'neut';
+        // AI Logic: Keyword detection for Bullish/Bearish
         if (titleLower.match(/(surge|jump|high|bull|record|buy|up|breakout|approve|etf|inflow|gain|soar)/)) {
           sent = 'bull';
         } else if (titleLower.match(/(drop|fall|low|bear|sell|down|crash|hack|sec|delay|outflow|ban|loss|sue)/)) {
           sent = 'bear';
         }
         
-        // Calculate Time Ago
-        const seconds = Math.floor((new Date() - item.published_on * 1000) / 1000);
+        // Time Calculation
+        const pubDate = new Date(item.pubDate.replace(' ', 'T'));
+        const seconds = Math.floor((new Date() - pubDate) / 1000);
         let timeStr = '';
-        if(seconds < 3600) timeStr = Math.floor(seconds/60) + 'm ago';
+        if(seconds < 3600) timeStr = Math.max(1, Math.floor(seconds/60)) + 'm ago';
         else if(seconds < 86400) timeStr = Math.floor(seconds/3600) + 'h ago';
         else timeStr = Math.floor(seconds/86400) + 'd ago';
 
         return {
           title: item.title,
-          src: item.source_info.name,
+          src: 'CoinTelegraph',
           sent: sent,
           time: timeStr,
-          url: item.url
+          url: item.link
         };
       });
       renderNews();
+    } else {
+      throw new Error("No items found");
     }
   } catch (error) {
-    listEl.innerHTML = '<div style="color:var(--red);padding:14px">Failed to load live news. Check your connection.</div>';
+    console.error("News Fetch Error:", error);
+    listEl.innerHTML = '<div style="color:var(--red);padding:14px">Failed to load live news. Network or API issue.</div>';
   }
 }
 
