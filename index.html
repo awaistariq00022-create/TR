@@ -675,64 +675,67 @@ function setThresh(v){
   if(sgEl&&sgEl.innerHTML!=='') renderSignals();
 }
 
-// ─── LIVE PRICE UPDATE (Binance WebSocket) ────────────────
-let wsInstance = null;
-let wsRetryDelay = 3000;
-let wsConnected = false;
-
+// ─── LIVE PRICE UPDATE (Binance REST API — works on GitHub Pages) ────────────────
 function setLiveStatus(connected){
-  wsConnected = connected;
   const dot = document.querySelector('.dot');
   const liveText = dot ? dot.nextElementSibling : null;
-  if(dot){
-    dot.style.background = connected ? 'var(--green)' : 'var(--red)';
-  }
+  if(dot) dot.style.background = connected ? 'var(--green)' : 'var(--red)';
   if(liveText){
     liveText.textContent = connected ? 'LIVE' : 'RECONNECTING';
     liveText.style.color = connected ? 'var(--green)' : 'var(--red)';
   }
 }
 
-function connectWS(){
-  if(wsInstance && (wsInstance.readyState === WebSocket.CONNECTING || wsInstance.readyState === WebSocket.OPEN)){
-    return;
-  }
-  const streams = COINS.map(c => c.sym.toLowerCase() + 'usdt@miniTicker').join('/');
-  const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
-  wsInstance = ws;
-
-  ws.onopen = function(){
-    setLiveStatus(true);
-    wsRetryDelay = 3000;
-  };
-
-  ws.onmessage = function(e){
-    try{
-      const msg = JSON.parse(e.data);
-      const d = msg.data || msg;
-      if(!d || !d.s) return;
-      const sym = d.s.replace('USDT','');
+async function fetchPrices(){
+  try{
+    const symbols = COINS.map(c => '"'+c.sym+'USDT"').join(',');
+    const url = `https://api.binance.com/api/v3/ticker/24hr?symbols=[${encodeURIComponent(symbols)}]`;
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('API error');
+    const data = await res.json();
+    data.forEach(d => {
+      const sym = d.symbol.replace('USDT','');
       const coin = COINS.find(c => c.sym === sym);
       if(coin){
-        const newPrice = parseFloat(d.c);
-        const newChg = parseFloat(d.P);
-        if(!isNaN(newPrice)) coin.price = newPrice;
-        if(!isNaN(newChg))   coin.chg   = newChg;
+        coin.price = parseFloat(d.lastPrice);
+        coin.chg   = parseFloat(d.priceChangePercent);
+        coin.vol   = formatVol(parseFloat(d.quoteVolume));
       }
-      renderCoins();
-      renderTable();
-    }catch(err){}
-  };
-
-  ws.onerror = function(){
+    });
+    setLiveStatus(true);
+    renderCoins();
+    renderTable();
+    // update chart header price too
+    const sel = document.getElementById('sym-sel');
+    if(sel){
+      const activeSym = sel.value.replace('USDT','');
+      const ac = COINS.find(c=>c.sym===activeSym);
+      if(ac){
+        const cp = document.getElementById('chart-p');
+        const cc = document.getElementById('chart-c');
+        if(cp) cp.textContent = fmtPrice(ac.price);
+        if(cc){
+          cc.textContent = (ac.chg>=0?'+':'')+ac.chg.toFixed(2)+'%';
+          cc.style.color = ac.chg>=0?'var(--green)':'var(--red)';
+          cc.style.background = ac.chg>=0?'rgba(16,185,129,.12)':'rgba(239,68,68,.12)';
+        }
+      }
+    }
+  }catch(e){
     setLiveStatus(false);
-  };
+  }
+}
 
-  ws.onclose = function(){
-    setLiveStatus(false);
-    wsRetryDelay = Math.min(wsRetryDelay * 1.5, 30000);
-    setTimeout(connectWS, wsRetryDelay);
-  };
+function formatVol(v){
+  if(v>=1e12) return (v/1e12).toFixed(1)+'T';
+  if(v>=1e9)  return (v/1e9).toFixed(1)+'B';
+  if(v>=1e6)  return (v/1e6).toFixed(1)+'M';
+  return v.toFixed(0);
+}
+
+function connectWS(){
+  fetchPrices();
+  setInterval(fetchPrices, 5000); // refresh every 5 seconds
 }
 
 // ─── REFRESH BUTTON ───────────────────────────────────────
